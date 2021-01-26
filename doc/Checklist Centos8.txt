@@ -6,30 +6,47 @@ follow this checklist.
    distro/version, create a new checklist for it and try not to change things
    in a way that breaks any other installs.
    
+   Create a superuser for the server, some software included here works best 
+   when it is installed by a user as opposed to installed as root.  For help
+   with creating a user, consult your standard Centos help tools.
+   
+   Make sure the machine has a DNS entry.  You will need this for installing the
+   hackathon software for external users.
+   
 1. Do a system update
-  $sudo yum check-update
+ 	$ sudo yum check-update
+  	$ sudo yum update
 
 2. Install and enable the EPEL package repository
 
-   	$ sudo yum install epel-release
-	-- OR --
-	$ sudo dnf install epel-release
-	-- OR --
-	Follow the instructions at https://fedoraproject.org/wiki/EPEL
+	Reference: http://elrepo.org/tiki/tiki-index.php
+
+	Install the 'elrepo' package repository
+	$ sudo yum install epel-release
+	$ sudo yum install https://www.elrepo.org/elrepo-release-8.el8.elrepo.noarch.rpm 
+	
+	Verify the 'elrepo' repository is active and available
+	$ sudo dnf repolist
+	
+	Confirm the 'kernel-ml' (mainline) is available from the 'elrepo-kernel' repository
+	$ sudo dnf --disablerepo="*" --enablerepo="elrepo-kernel" list available | grep kernel-ml
+
+	Install the latest mainline kernel
+	$ sudo dnf --enablerepo=elrepo-kernel install kernel-ml
 
 3. Install the development tools and compilers
-  $ sudo yum group install "Development Tools"
+  	$ sudo yum group install "Development Tools"
 
 4. Install the basics you care about, something like:
-	$ sudo yum install dnf git ipmctl ndctl vim-enhanced
+	$ sudo yum install dnf git ipmctl ndctl vim-enhanced firewalld certbot
 	
 	Implement the Centos8 timedatectl bug workaround:
 	$ cd /etc
 	$ sudo rm localtime
-	$ sudo ln -s ../usr/share/zoneinfo/MST7MDT localtime
+	$ sudo ln -s ../usr/share/zoneinfo/PST8PDT localtime
 	
-	Make sure the machine has a DNS entry
-
+	(note: you can install any time zone you want)
+	
 5. Arrange for NetworkManager to treat docker networks as unmanaged:
 	$ sudo vi /etc/NetworkManager/NetworkManager.conf
 		[main]
@@ -43,6 +60,7 @@ follow this checklist.
 	Follow instructions from:
 	 - https://docs.docker.com/install/linux/docker-ce/centos/
 	 - https://docs.docker.com/install/linux/linux-postinstall/\
+	 (note: as of this writing, the latest commands are shown below)
 	
 	$ sudo dnf remove docker \
                   docker-client \
@@ -60,7 +78,7 @@ follow this checklist.
 	$ sudo dnf config-manager \
     	  --add-repo \
     	  https://download.docker.com/linux/centos/docker-ce.repo
-	$ sudo dnf update 
+	$ sudo dnf update
 	$ sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
 	
 	Install and Enable Docker
@@ -95,6 +113,87 @@ follow this checklist.
 	$ sudo crontab -e
 		@daily root find /home/hackathon/sessions -mtime +1 -type f -delete
 
+
+10. Provision the Persistent Memory
+
+	$ sudo ipmctl create -goal PersistentMemoryType=AppDirect
+	$ sudo systemctl reboot
+	
+	$ sudo ndctl create-namespace --mode fsdax --continue
+	
+	$ sudo mkfs.ext4 /dev/pmem0
+	$ sudo mkfs.ext4 /dev/pmem1
+	
+	$ sudo mkdir /pmem0 /pmem1 
+	
+	$ sudo mount -o dax /dev/pmem0 /pmem0
+	$ sudo mount -o dax /dev/pmem1 /pmem1
+	
+11. Add an entry to /etc/fstab for the persistent memory file systems
+
+	Identify the UUID for the pmem file systems
+	$ blkid /dev/pmem0 /dev/pmem1
+
+	$ sudo vi /etc/fstab
+	{PMEM0_UUID} /pmem0 ext4 dax 0 0
+	{PMEM1_UUID} /pmem1 ext4 dax 0 0
+	
+	Example:
+	
+	# blkid /dev/pmem0 /dev/pmem1
+	/dev/pmem0: UUID="39311f75-4607-498a-8c9c-41007f1aadde" TYPE="ext4"
+	/dev/pmem1: UUID="4d50a48b-7d3d-41c4-bc8e-e930b0b43bb5" TYPE="ext4"
+	
+	Add the following to /etc/fstab
+	
+	UUID=39311f75-4607-498a-8c9c-41007f1aadde       /pmem0 ext4     dax     0       0
+	UUID=4d50a48b-7d3d-41c4-bc8e-e930b0b43bb5       /pmem1 ext4     dax     0       0	
+		
+12. Add a root cron job to expire old webhackathon sessions:
+	$ sudo crontab -e
+		@daily root find /home/hackathon/sessions -mtime +1 -type f -delete
+		
+13. Install webhackathon software:
+	$ mkdir ~/downloads && cd ~/downloads
+	
+	Clone the webhackathon web server repo in your downloads dir, eg:
+	$ git clone https://github.com/pmemhackathon/2020-03-24.web
+	
+	From the root of webhackathon repo, run scripts/create_hackathon_account, eg:
+	$ cd ~/downloads/2020-03-24.web
+	$ sudo scripts/create_hackathon_account
+	
+	Clone the latest YYYY-MM-DD code sample repo to /home/hackathon/, eg:
+	$ sudo git clone https://github.com/pmemhackathon/2020-06-25 /home/hackathon/2020-06-25
+	$ sudo chown -R hackathon:hackathon /home/hackathon/2020-06-25
+	
+	Create 200 users for the YYY-MM-DD workshop
+	$ sudo scripts/create_pmemusers 1 200 2020-06-25
+	
+	Set a default password
+	$ sudo scripts/enable_pmemusers 1 200 <password>
+	
+14. Create a 'PMDK' workshop
+
+	$ sudo mkdir /home/hackathon/workshops/pmdk
+		
+15. Start the web server
+
+	Usage: /home/hackathon <code_sample_YYY-MM-DD> <fully_qualified_domain_name>
+	
+	Example:
+	$ sudo ./webhackathon 2020-06-25 pmem01.pmemhackathon.io &
+
+	Create a START script for easier use
+	
+	#!/bin/bash -x
+	./webhackathon 2020-06-25 pmemhack1.pmemhackathon.io &
+
+16. Navigate to the web server in a browser and test the environment
+
+	https://pmemhack1.pmemhackathon.io
+	
+17. Done	
 8. Install webhackathon software:
 	(non-root) clone the webhackathon repo in your home dir
 	(non-root) clone the YYYY-MM-DD repo in your home dir
