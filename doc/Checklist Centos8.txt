@@ -12,7 +12,8 @@ follow this checklist.
    
    Ensure your system has a public DNS Entry.
    
-1. Do a system update
+1. Do a system update if desired
+(Note: We have experienced some reboot problems on Equinex/Packet systems when doing an OS update.  If your PXE boot hangs after OS update, skip this step.)
   	$ sudo yum check-update
 	$ sudo yum update
 
@@ -76,15 +77,17 @@ follow this checklist.
                   docker-engine-selinux \
                   docker-engine
 	
+	Install the Yum Utils package
+	$ sudo yum install -y yum-utils
+	
 	Setup the Docker Community Edition Repository 
-	$ sudo dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo
- 	$ sudo dnf -y install dnf-plugins-core
-	$ sudo dnf update 
+	$ sudo yum-config-manager \
+        --add-repo \
+        https://download.docker.com/linux/centos/docker-ce.repo
 	
 	Install and Enable Docker
-	$ sudo dnf install docker-ce docker-ce-cli containerd.io
+	$ sudo yum install docker-ce docker-ce-cli containerd.io
 	$ sudo systemctl start docker
-	$ sudo systemctl enable docker
 	
 	Test Docker using the Hello-World image
 	$ sudo docker run hello-world
